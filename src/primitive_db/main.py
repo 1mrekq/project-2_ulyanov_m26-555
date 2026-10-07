@@ -1,8 +1,8 @@
-from primitive_db.engine import welcome
+from primitive_db.engine import run
 
 
 def main():
-    welcome()
+    run()
 
 
 if __name__ == '__main__':
