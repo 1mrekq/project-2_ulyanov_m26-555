@@ -1,3 +1,5 @@
+from primitive_db.decorators import confirm_action, handle_db_errors, log_time
+
 INT = 'int'
 STR = 'str'
 BOOL = 'bool'
@@ -40,14 +42,15 @@ class DeleteFromTableException(BaseException):
         super().__init__(*args)
 
 
+@handle_db_errors
 def create_table(metadata, table_name, columns):
     if table_name in metadata:
-        raise CreateTableException(f'Таблица "{table_name}" уже существует.')
+        raise KeyError(table_name)
 
     created_columns = dict(column.split(':') for column in columns)
     for column_name, column_type in created_columns.items():
         if column_type not in ALLOWED_COLUMNS_TYPES:
-            raise CreateTableException(
+            raise ValueError(
                 f'В таблице {table_name} используется некорректный тип '
                 f'{column_type} для столбца {column_name}'
             )
@@ -56,10 +59,11 @@ def create_table(metadata, table_name, columns):
         created_columns = {COLUMN_ID_NAME: INT, **created_columns}
     return {**metadata, table_name: created_columns}
 
-
+@confirm_action('удаление таблицы')
+@handle_db_errors
 def drop_table(metadata, table_name):
     if table_name not in metadata:
-        raise DropTableException(f'Таблица "{table_name}" не существует.')
+        raise KeyError(table_name)
 
     return {key: value for key, value in metadata.items() if key != table_name}
 
@@ -78,15 +82,17 @@ def _matches_type(value, column_type):
     return checker is not None and checker(value)
 
 
+@handle_db_errors
+@log_time
 def insert(metadata, table_name, table_data, values):
     if table_name not in metadata:
-        raise InsertIntoTableException(f'Таблица "{table_name}" не существует.')
+        raise KeyError(table_name)
 
     columns = metadata[table_name]
     column_names = [name for name in columns if name != COLUMN_ID_NAME]
 
     if len(values) != len(column_names):
-        raise InsertIntoTableException(
+        raise ValueError(
             f'Количество значений не соответствует количеству столбцов '
             f'в таблице "{table_name}".'
         )
@@ -95,7 +101,7 @@ def insert(metadata, table_name, table_data, values):
     for column_name, value in zip(column_names, values):
         expected_type = columns[column_name]
         if not _matches_type(value, expected_type):
-            raise InsertIntoTableException(
+            raise ValueError(
                 f'Значение "{value}" не соответствует типу "{expected_type}" '
                 f'в столбце "{column_name}".'
             )
@@ -109,6 +115,8 @@ def insert(metadata, table_name, table_data, values):
     return table_data + [new_row]
 
 
+@handle_db_errors
+@log_time
 def select(table_data, where_clause=None):
     if where_clause:
         key, value = next(iter(where_clause.items()))
@@ -116,16 +124,15 @@ def select(table_data, where_clause=None):
     return list(table_data)
 
 
+@handle_db_errors
 def update(metadata, table_name, table_data, set_clause, where_clause):
     columns = metadata[table_name]
     for column_name, value in set_clause.items():
         if column_name not in columns:
-            raise UpdateTableException(
-                f'Столбец "{column_name}" не существует в таблице "{table_name}".'
-            )
+            raise KeyError(column_name)
         expected_type = columns[column_name]
         if not _matches_type(value, expected_type):
-            raise UpdateTableException(
+            raise ValueError(
                 f'Значение "{value}" не соответствует типу "{expected_type}" '
                 f'в столбце "{column_name}".'
             )
@@ -140,14 +147,17 @@ def update(metadata, table_name, table_data, set_clause, where_clause):
     return table_data, updated_ids
 
 
+@confirm_action('удаление данных изтаблицы')
+@handle_db_errors
 def delete(table_data, where_clause):
     where_key, where_value = next(iter(where_clause.items()))
     return [row for row in table_data if row.get(where_key) != where_value]
 
 
+@handle_db_errors
 def table_info(metadata, table_name, table_data):
     if table_name not in metadata:
-        raise SelectFromTableException(f'Таблица "{table_name}" не существует.')
+        raise KeyError(table_name)
 
     columns = metadata[table_name]
     columns_str = ', '.join(

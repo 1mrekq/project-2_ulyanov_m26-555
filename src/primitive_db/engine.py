@@ -1,3 +1,5 @@
+import json
+
 import prompt
 from prettytable import PrettyTable
 
@@ -25,6 +27,7 @@ from primitive_db.parser import (
     tokenize,
 )
 from primitive_db.utils import (
+    create_cacher,
     delete_table_data,
     load_metadata,
     load_table_data,
@@ -33,6 +36,7 @@ from primitive_db.utils import (
 )
 
 METADATA_FILE = 'db_meta.json'
+cache_result = create_cacher()
 
 def print_create_table_success_message(table_name, table_metadata):
     columns_str = ', '.join([f'{k}:{v}' for k, v in table_metadata.items()])
@@ -165,7 +169,11 @@ def run():
                             if invalid_column is not None:
                                 print_invalid_value(command, [invalid_column])
                             else:
-                                metadata = create_table(metadata, table_name, columns)
+                                metadata = create_table(
+                                    metadata, table_name, columns
+                                )
+                                if metadata is None:
+                                    continue
                                 save_metadata(METADATA_FILE, metadata)
                                 save_table_data(table_name, [])
                                 print_create_table_success_message(
@@ -177,6 +185,8 @@ def run():
                         else:
                             table_name = command_args[0]
                             metadata = drop_table(metadata, table_name)
+                            if metadata is None:
+                                continue
                             save_metadata(METADATA_FILE, metadata)
                             delete_table_data(table_name)
                             print_drop_table_success_message(table_name)
@@ -195,6 +205,8 @@ def run():
                             table_data = insert(
                                 metadata, table_name, table_data, values
                             )
+                            if table_data is None:
+                                continue
                             save_table_data(table_name, table_data)
                             print_insert_into_table_success_message(
                                 table_name, table_data
@@ -210,7 +222,20 @@ def run():
                                     f'Таблица "{table_name}" не существует.'
                                 )
                             table_data = load_table_data(table_name)
-                            rows = select(table_data, where_clause)
+                            cache_key = json.dumps(
+                                {
+                                    'table': table_name,
+                                    'where': where_clause,
+                                    'data': table_data,
+                                },
+                                sort_keys=True,
+                            )
+                            rows = cache_result(
+                                cache_key,
+                                lambda: select(table_data, where_clause),
+                            )
+                            if rows is None:
+                                continue
                             print_rows(rows, metadata[table_name])
                     case 'update':
                         parsed = parse_update_args(command_args)
@@ -223,13 +248,16 @@ def run():
                                     f'Таблица "{table_name}" не существует.'
                                 )
                             table_data = load_table_data(table_name)
-                            table_data, updated_ids = update(
+                            result = update(
                                 metadata,
                                 table_name,
                                 table_data,
                                 set_clause,
                                 where_clause,
                             )
+                            if result is None:
+                                continue
+                            table_data, updated_ids = result
                             save_table_data(table_name, table_data)
                             updated_ids = [str(row_id) for row_id in updated_ids]
                             print_update_table_success_message(
@@ -248,6 +276,8 @@ def run():
                             table_data = load_table_data(table_name)
                             ids_before_delete = set([row['ID'] for row in table_data])
                             table_data = delete(table_data, where_clause)
+                            if table_data is None:
+                                continue
                             ids_after_delete = set([row['ID'] for row in table_data])
                             save_table_data(table_name, table_data)
                             deleted_ids = [
