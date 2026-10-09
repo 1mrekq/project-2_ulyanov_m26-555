@@ -1,10 +1,17 @@
+from primitive_db.constants import (
+    BOOL,
+    COLUMN_ID_NAME,
+    COLUMN_SEPARATOR,
+    DELETE_DATA_ACTION,
+    DROP_TABLE_ACTION,
+    EMPTY_TABLE_MAX_ID,
+    ID_INCREMENT,
+    INT,
+    STR,
+    VALID_TYPES,
+)
 from primitive_db.decorators import confirm_action, handle_db_errors, log_time
 
-INT = 'int'
-STR = 'str'
-BOOL = 'bool'
-ALLOWED_COLUMNS_TYPES = {INT, STR, BOOL}
-COLUMN_ID_NAME = 'ID'
 TYPE_CHECKERS = {
     INT: lambda value: isinstance(value, int) and not isinstance(value, bool),
     STR: lambda value: isinstance(value, str),
@@ -12,44 +19,17 @@ TYPE_CHECKERS = {
 }
 
 
-class CreateTableException(BaseException):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-
-class DropTableException(BaseException):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-
-class InsertIntoTableException(BaseException):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-
-class SelectFromTableException(BaseException):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-
-class UpdateTableException(BaseException):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-
-class DeleteFromTableException(BaseException):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-
 @handle_db_errors
 def create_table(metadata, table_name, columns):
+    """Создаёт таблицу в метаданных и возвращает обновлённые метаданные."""
     if table_name in metadata:
         raise KeyError(table_name)
 
-    created_columns = dict(column.split(':') for column in columns)
+    created_columns = dict(
+        column.split(COLUMN_SEPARATOR) for column in columns
+    )
     for column_name, column_type in created_columns.items():
-        if column_type not in ALLOWED_COLUMNS_TYPES:
+        if column_type not in VALID_TYPES:
             raise ValueError(
                 f'В таблице {table_name} используется некорректный тип '
                 f'{column_type} для столбца {column_name}'
@@ -59,9 +39,11 @@ def create_table(metadata, table_name, columns):
         created_columns = {COLUMN_ID_NAME: INT, **created_columns}
     return {**metadata, table_name: created_columns}
 
-@confirm_action('удаление таблицы')
+
+@confirm_action(DROP_TABLE_ACTION)
 @handle_db_errors
 def drop_table(metadata, table_name):
+    """Удаляет таблицу из метаданных и возвращает обновлённые метаданные."""
     if table_name not in metadata:
         raise KeyError(table_name)
 
@@ -69,15 +51,12 @@ def drop_table(metadata, table_name):
 
 
 def list_tables(metadata):
-    if len(metadata) == 0:
-        print('Нет таблиц для отображения.')
-        return
-
-    for table_name in metadata.keys():
-        print(f'- {table_name}')
+    """Возвращает список имён таблиц из метаданных."""
+    return list(metadata.keys())
 
 
 def _matches_type(value, column_type):
+    """Проверяет, соответствует ли значение ожидаемому типу столбца."""
     checker = TYPE_CHECKERS.get(column_type)
     return checker is not None and checker(value)
 
@@ -85,6 +64,7 @@ def _matches_type(value, column_type):
 @handle_db_errors
 @log_time
 def insert(metadata, table_name, table_data, values):
+    """Добавляет запись в таблицу и возвращает обновлённые данные."""
     if table_name not in metadata:
         raise KeyError(table_name)
 
@@ -109,8 +89,8 @@ def insert(metadata, table_name, table_data, values):
 
     new_id = max(
         (row[COLUMN_ID_NAME] for row in table_data),
-        default=0,
-    ) + 1
+        default=EMPTY_TABLE_MAX_ID,
+    ) + ID_INCREMENT
     new_row = {COLUMN_ID_NAME: new_id, **row_values}
     return table_data + [new_row]
 
@@ -118,6 +98,7 @@ def insert(metadata, table_name, table_data, values):
 @handle_db_errors
 @log_time
 def select(table_data, where_clause=None):
+    """Возвращает записи таблицы, опционально отфильтрованные по where."""
     if where_clause:
         key, value = next(iter(where_clause.items()))
         return [row for row in table_data if row.get(key) == value]
@@ -126,6 +107,7 @@ def select(table_data, where_clause=None):
 
 @handle_db_errors
 def update(metadata, table_name, table_data, set_clause, where_clause):
+    """Обновляет записи по условию и возвращает данные с ID изменений."""
     columns = metadata[table_name]
     for column_name, value in set_clause.items():
         if column_name not in columns:
@@ -147,22 +129,19 @@ def update(metadata, table_name, table_data, set_clause, where_clause):
     return table_data, updated_ids
 
 
-@confirm_action('удаление данных изтаблицы')
+@confirm_action(DELETE_DATA_ACTION)
 @handle_db_errors
 def delete(table_data, where_clause):
+    """Удаляет записи по условию и возвращает оставшиеся данные."""
     where_key, where_value = next(iter(where_clause.items()))
     return [row for row in table_data if row.get(where_key) != where_value]
 
 
 @handle_db_errors
 def table_info(metadata, table_name, table_data):
+    """Возвращает имя таблицы, столбцы и количество записей."""
     if table_name not in metadata:
         raise KeyError(table_name)
 
     columns = metadata[table_name]
-    columns_str = ', '.join(
-        f'{name}:{column_type}' for name, column_type in columns.items()
-    )
-    print(f'Таблица: {table_name}')
-    print(f'Столбцы: {columns_str}')
-    print(f'Количество записей: {len(table_data)}')
+    return table_name, columns, len(table_data)

@@ -1,11 +1,33 @@
 import json
 import os
-from pathlib import Path
+
+from primitive_db.constants import (
+    DATA_DIR,
+    ENCODING,
+    META_FILE,
+    READ_MODE,
+    TABLE_FILE_EXTENSION,
+    WRITE_MODE,
+)
+
+
+def _table_filepath(table_name):
+    """Возвращает путь к JSON-файлу данных таблицы."""
+    filename = f'{table_name}{TABLE_FILE_EXTENSION}'
+    return os.path.join(DATA_DIR, filename)
+
+
+def initialize_storage():
+    """Создаёт каталог данных и файл метаданных, если их ещё нет."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if not os.path.exists(META_FILE):
+        save_metadata(META_FILE, {})
 
 
 def load_metadata(filepath):
+    """Загружает метаданные БД из файла или возвращает пустой словарь."""
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, READ_MODE, encoding=ENCODING) as f:
             data = json.load(f)
         return data
     except FileNotFoundError:
@@ -13,16 +35,18 @@ def load_metadata(filepath):
 
 
 def save_metadata(filepath, data):
+    """Сохраняет метаданные БД в файл."""
     try:
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, WRITE_MODE, encoding=ENCODING) as f:
             json.dump(data, f)
     except OSError:
         print(f'Не удалось сохранить данные в файл {filepath}')
 
 
 def load_table_data(table_name):
+    """Загружает данные таблицы из файла или возвращает пустой список."""
     try:
-        with open(f'data/{table_name}.json', 'r', encoding='utf-8') as f:
+        with open(_table_filepath(table_name), READ_MODE, encoding=ENCODING) as f:
             data = json.load(f)
         return data
     except FileNotFoundError:
@@ -30,28 +54,17 @@ def load_table_data(table_name):
 
 
 def save_table_data(table_name, data):
+    """Сохраняет данные таблицы в JSON-файл."""
     try:
-        os.makedirs('data', exist_ok=True)
-        with open(f'data/{table_name}.json', 'w', encoding='utf-8') as f:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(_table_filepath(table_name), WRITE_MODE, encoding=ENCODING) as f:
             json.dump(data, f)
     except OSError:
         print(f'Не удалось сохранить данные в файл {table_name}')
 
 
 def delete_table_data(table_name):
-    path = Path(f'data/{table_name}.json')
-    if path.exists():
-        path.unlink()
-
-
-def create_cacher():
-    cache = {}
-
-    def cache_result(key, value_func):
-        if key in cache:
-            return cache[key]
-        result = value_func()
-        cache[key] = result
-        return result
-
-    return cache_result
+    """Удаляет файл данных таблицы, если он существует."""
+    path = _table_filepath(table_name)
+    if os.path.exists(path):
+        os.remove(path)
